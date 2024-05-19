@@ -1,7 +1,7 @@
 import contextlib
 
 from django.shortcuts import get_object_or_404
-from djeasyview.response import FailureResponse, SuccessResponse
+from .response import FailureResponse, SuccessResponse
 from rest_framework import status
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import AllowAny
@@ -25,7 +25,7 @@ class TableListCreateApiView(APIView):
             table = DynamicTable.load_table_schema(table_name)
         except:
             table = DynamicTable.load_table_schema(table_name).clear_all_objects()
-    
+
         return schema_table, table, columns
 
     def get(self, request):

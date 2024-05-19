@@ -10,7 +10,7 @@ def readme():
 # updated
 setup(
     name="djdynatable",
-    version="1.0.8",
+    version="1.0.0",
     long_description=readme(),
     long_description_content_type="text/markdown",
     author="Anand Raj",
