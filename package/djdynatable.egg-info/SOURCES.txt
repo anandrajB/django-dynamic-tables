@@ -15,6 +15,7 @@ djdynatable/response.py
 djdynatable/serializer.py
 djdynatable/tests.py
 djdynatable/urls.py
+djdynatable/utils.py
 djdynatable/views.py
 djdynatable.egg-info/PKG-INFO
 djdynatable.egg-info/SOURCES.txt

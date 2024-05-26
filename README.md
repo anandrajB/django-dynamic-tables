@@ -18,11 +18,11 @@
 
 ### 1.1 Initial setup
 
-- Install finflo using [pip](https://pypi.org/project/finflo/)
+- Install djdynatable using [pip](https://pypi.org/project/djdynatable/)
 
 ```bash
 
-pip install finflo
+pip install djdynatable
 
 ```
 

@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: djdynatable
-Version: 1.0.0
+Version: 1.0.2
 Author: Anand Raj
 Author-email: anand98.ar@gmail.com
 License: UNKNOWN
@@ -31,11 +31,11 @@ Description-Content-Type: text/markdown
 
 ### 1.1 Initial setup
 
-- Install finflo using [pip](https://pypi.org/project/finflo/)
+- Install djdynatable using [pip](https://pypi.org/project/djdynatable/)
 
 ```bash
 
-pip install finflo
+pip install djdynatable
 
 ```
 

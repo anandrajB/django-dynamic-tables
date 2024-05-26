@@ -1,6 +1,5 @@
 import contextlib
 import importlib
-import os
 from dataclasses import dataclass
 from functools import wraps
 from importlib import import_module, reload
@@ -9,7 +8,6 @@ from typing import Dict, List, Optional, Type
 from django.apps import apps
 from django.conf import settings
 from django.contrib import admin
-from django.core.exceptions import ImproperlyConfigured
 from django.db import ProgrammingError, connections, models
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.models import QuerySet
@@ -17,7 +15,7 @@ from django.utils.asyncio import async_unsafe
 from rest_framework import serializers
 from .handler import DynamicTableQueryHandler
 from .exception import BaseException, TableDoesntExistException
-
+from .utils import schema_aware, check_dependencies
 from .models import (
     DEFAULT_FIELD_TYPES,
     DEFAULT_MODEL_ATTRS,
@@ -25,16 +23,13 @@ from .models import (
     SchemaModel,
     Generated_model_objects,
 )
+from .compat import BASE_SCHEMA_NAME, DJANGO_PROJECT_NAME
 
 
 try:
-    django_project_name = os.environ.get("DJANGO_SETTINGS_MODULE").split(".")[0]
+    from django_tenants.utils import schema_context
 except Exception:
-    raise ImproperlyConfigured(
-        "DJANGO_SETTINGS_MODULE environment variable is not set."
-    )
-
-
+    pass
 """ POTENTIAL WARNING :
     mixed migration and schema model can mingle ,
     never ever use create_model for this below method ,
@@ -64,31 +59,36 @@ class DynamicTable:
     new_table: bool = False
     model_cls: Optional[Type[models.Model]] = models.Model
     db_conn: Optional[None] = None
+    schema_name: Optional[str] = None
 
-    def __new__(cls, data: Dict, new_table: bool = True):
-        return super().__new__(cls)
+    # def __new__(cls, data: Dict, new_table: bool = True):
+    #     return super().__new__(cls)
 
     def __post_init__(self) -> None:
         self.model_cls: object = self.get_model_cls(self.data)
         self.db_conn: BaseDatabaseWrapper = connections["default"]
         if self.new_table:
             self.create_table()
+        if self.schema_name is None:
+            print("the schema name is ", self.schema_name)
+            self.schema_name = BASE_SCHEMA_NAME
 
     @property
-    def table_name(self):
+    def table_name(self) -> str:
         return self.model_cls._meta.db_table
 
     @property
-    def table_verbose_name(self):
+    def table_verbose_name(self) -> str:
         return self.model_cls._meta.verbose_name
 
     @staticmethod
-    def clear_all_objects():
+    def clear_all_objects() -> None:
         return Generated_model_objects.clear()
 
-    def clear_object(self):
+    def clear_object(self) -> None:
         return Generated_model_objects.pop(self.table_verbose_name)
 
+    @schema_aware(lambda self: self.schema_name)
     @property
     def table_exists(
         self,
@@ -103,43 +103,51 @@ class DynamicTable:
         )
 
     @classmethod
-    def load_table_schema(cls, tblname: str) -> "DynamicTable":
-        schema_model = SchemaModel.objects.filter(table_name=tblname)
+    def load_table_schema(cls, tblname: str, schema_name: str = None) -> "DynamicTable":
 
-        if schema_model.exists():
-            return cls(
-                {
-                    "tblname": schema_model.first().table_name,
-                    "columns": schema_model.first().columns,
-                },
-                new_table=False,
+        def get_dynamic_table():
+            schema_model = SchemaModel.objects.filter(table_name=tblname)
+            if schema_model.exists():
+                model_instance = schema_model.first()
+                return cls(
+                    {
+                        "tblname": model_instance.table_name,
+                        "columns": model_instance.columns,
+                    },
+                    new_table=False,
+                    schema_name=schema_name,
+                )
+            raise TableDoesntExistException(
+                code="table_doesnt_exist",
+                detail=f"Table {tblname} does not exist.",
             )
-        raise TableDoesntExistException(
-            code="table_doesnt_exist",
-            detail=f"Table {tblname} does not exists.",
-        )
+
+        if check_dependencies() and schema_name:
+            with schema_context(schema_name):
+                return get_dynamic_table()
+
+        return get_dynamic_table()
 
     @staticmethod
     def unregister_app(app_label, model_name) -> None:
-        try:
+        with contextlib.suppress(LookupError):
             app_config = apps.get_app_config(app_label)
             app_config.models_module = None
             app_config.import_models()
-        except LookupError:
-            pass
 
     def serialize_model_class(self, model_class):
         module_name = model_class.__module__
         class_name = model_class.__name__
         return f"{module_name}.{class_name}"
 
+    @schema_aware(lambda self: self.schema_name)
     def deserialize_model_class(self, model_class_string):
         module_name, class_name = model_class_string.rsplit(".", 1)
         module = importlib.import_module(module_name)
-        model_class = getattr(module, class_name)
-        return model_class
+        return getattr(module, class_name)
 
     @staticmethod
+    @schema_aware(lambda self: self.schema_name)
     def register_app() -> None:
         with contextlib.suppress(Exception):
             admin.site.register(DynamicTable.model_cls)
@@ -149,8 +157,10 @@ class DynamicTable:
         self,
         coldef: Dict,
         serializer: serializers.Serializer,
-    ):
-        table_query = DynamicTableQueryHandler(data=self.data, model_cls=self.model_cls)
+    ) -> None:
+        table_query = DynamicTableQueryHandler(
+            data=self.data, model_cls=self.model_cls, schema_name=self.schema_name
+        )
         change_actions = {
             "add": table_query.add_column,
             "remove": table_query.remove_column,
@@ -166,10 +176,11 @@ class DynamicTable:
         else:
             raise ValueError(f"Unsupported change type: {change_type}")
 
+    @schema_aware(lambda self: self.schema_name)
     def get_model_cls(self, data: Dict) -> models.Model:
 
-        if Generated_model_objects.get(str(data["tblname"])):
-            return Generated_model_objects[str(data["tblname"])]
+        # if Generated_model_objects.get(str(data["tblname"])):
+        #     return Generated_model_objects[str(data["tblname"])]
 
         class Meta:
             app_label = "tables"
@@ -179,7 +190,7 @@ class DynamicTable:
 
         model_attrs = {
             "__module__": models.Model.__module__,
-            "app_label": f"{django_project_name}.tables",
+            "app_label": f"{DJANGO_PROJECT_NAME}.tables",
             "Meta": Meta,
         }
 
@@ -200,24 +211,23 @@ class DynamicTable:
 
         return model_klass
 
+    @schema_aware(lambda self: self.schema_name)
     def create_table(self) -> None:
         try:
             with self.db_conn.schema_editor() as schema_editor:
                 schema_editor.create_model(self.model_cls)
-        except ProgrammingError:
+        except ProgrammingError as e:
             tblexc = BaseException(
                 code="table_create_error",
                 detail=f"Error while creating table: '{self.data['tblname']}.'",
             )
             tblexc.status_code = 400
-            raise tblexc
+            raise tblexc from e
         else:
             schema_model_obj = SchemaModel(
                 table_name=self.data["tblname"], columns=self.data["columns"]
             )
             schema_model_obj.save()
-
-       
 
     def get_fields(self) -> List:
         return [x["colname"] for x in self.data["columns"]]
@@ -242,6 +252,7 @@ class DynamicTable:
             "DynamicTableSerializer", (serializers.ModelSerializer,), {"Meta": meta_cls}
         )
 
+    @schema_aware(lambda self: self.schema_name)
     def drop_table(self) -> None:
         """drops the table from database"""
         try:
@@ -258,6 +269,7 @@ class DynamicTable:
             # self.unregister_app(self.data["tblname"], self.data["tblname"])
             SchemaModel.objects.filter(table_name=self.data["tblname"]).delete()
 
+    @schema_aware(lambda self: self.schema_name)
     def get_queryset(self) -> QuerySet:
         return self.model_cls.objects.all()
 

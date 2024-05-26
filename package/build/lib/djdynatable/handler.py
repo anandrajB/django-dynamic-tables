@@ -14,6 +14,7 @@ from .models import (
 )
 from dataclasses import dataclass
 from django.db import connections
+from .utils import schema_aware
 
 
 @dataclass(slots=True)
@@ -21,6 +22,7 @@ class DynamicTableQueryHandler:
 
     data: Dict
     model_cls: Type[models.Model] = models.Model
+    schema_name: Type[str] = None
     db_conn: Optional[None] = None
 
     def __post_init__(self) -> None:
@@ -35,6 +37,7 @@ class DynamicTableQueryHandler:
             )
         )[0]
 
+    @schema_aware(lambda self: self.schema_name)
     def column_to_db(self, coldef: Dict, change: str = "add") -> None:
         schema_table_obj = SchemaModel.objects.filter(
             table_name=self.data["tblname"]
@@ -42,14 +45,6 @@ class DynamicTableQueryHandler:
         if change == "add":
             del coldef["change"]
             schema_table_obj.columns.append(coldef)
-            schema_table_obj.save()
-        elif change == "remove":
-            schema_table_obj.columns = list(
-                filter(
-                    lambda col: col["colname"] != coldef["colname"],
-                    schema_table_obj.columns,
-                )
-            )
             schema_table_obj.save()
         elif change == "alter":
             for i in range(len(schema_table_obj.columns)):
@@ -59,6 +54,14 @@ class DynamicTableQueryHandler:
                         "colname": coldef["colname"],
                         "coltype": coldef["coltype"],
                     }
+            schema_table_obj.save()
+        elif change == "remove":
+            schema_table_obj.columns = list(
+                filter(
+                    lambda col: col["colname"] != coldef["colname"],
+                    schema_table_obj.columns,
+                )
+            )
             schema_table_obj.save()
 
     def get_relation_table_object(self, data: Dict) -> models.Model:
@@ -79,6 +82,7 @@ class DynamicTableQueryHandler:
     #     else self.load_table_schema(data["to_table"]).model_cls
     # )
 
+    @schema_aware(lambda self: self.schema_name)
     def add_column(self, coldef: Dict) -> None:
         """adds column to dynamic table and saves metadata to schema table"""
 
@@ -103,16 +107,17 @@ class DynamicTableQueryHandler:
         try:
             with self.db_conn.schema_editor() as schema_editor:
                 schema_editor.add_field(self.model_cls, field)
-        except ProgrammingError:
+        except ProgrammingError as e:
             tblexc = BaseException(
                 code="field_add_error",
                 detail=f"Error while creating field: '{coldef['colname']}'. Field already exists.",
             )
             tblexc.status_code = 400
-            raise tblexc
+            raise tblexc from e
         else:
             self.column_to_db(coldef, "add")
 
+    @schema_aware(lambda self: self.schema_name)
     def remove_column(self, coldef: Dict) -> None:
         """removes column to dynamic table and saves metadata to schema  table"""
         try:
@@ -122,12 +127,12 @@ class DynamicTableQueryHandler:
                     self.data["columns"],
                 )
             )[0]
-        except IndexError:
+        except IndexError as e:
             tblexc = BaseException(
                 code="not_found", detail=f"Column '{coldef['colname']}' was not found"
             )
             tblexc.status_code = 404
-            raise tblexc
+            raise tblexc from e
         if local_coldef["coltype"] in RELATIONSHIP_FIELD:
             field = DEFAULT_FIELD_TYPES[local_coldef["coltype"]](
                 to=self.get_relation_table_object(coldef),
@@ -141,26 +146,27 @@ class DynamicTableQueryHandler:
         try:
             with self.db_conn.schema_editor() as schema_editor:
                 schema_editor.remove_field(self.model_cls, field)
-        except ProgrammingError:
+        except ProgrammingError as e:
             tblexc = BaseException(
                 code="remove_column_error",
                 detail=f"Error while removing column '{coldef['colname']}'",
             )
             tblexc.status_code = 400
-            raise tblexc
+            raise tblexc from e
         else:
             self.column_to_db(coldef, "remove")
 
+    @schema_aware(lambda self: self.schema_name)
     def alter_column(self, coldef: Dict) -> None:
         try:
             old_column = self.get_modifiers(coldef)
-        except IndexError:
+        except IndexError as e:
             tblexc = BaseException(
                 code="not_found",
                 detail=f"Column '{coldef['oldcolname']}' was not found",
             )
             tblexc.status_code = 404
-            raise tblexc
+            raise tblexc from e
 
         old_field = DEFAULT_FIELD_TYPES[old_column["coltype"]]()
         old_field.column = old_column["colname"]
@@ -174,34 +180,35 @@ class DynamicTableQueryHandler:
                 """check current column type and new column type"""
                 try:
                     self.model_cls.objects.all().update(**{old_column["colname"]: None})
-                except:
+                except Exception:
                     try:
                         self.model_cls.objects.all().update(
                             **{old_column["colname"]: False}
                         )
-                    except:
+                    except Exception:
                         self.model_cls.objects.all().update(
                             **{old_column["colname"]: None}
                         )
             with self.db_conn.schema_editor() as schema_editor:
                 schema_editor.alter_field(self.model_cls, old_field, new_field)
-        except ProgrammingError:
+        except ProgrammingError as exc:
             tblexc = BaseException(
                 code="column_error",
                 detail=f"Column '{coldef['colname']}' already exists.",
             )
             tblexc.status_code = 404
-            raise tblexc
-        except DataError:
+            raise tblexc from exc
+        except DataError as exc:
             tblexc = BaseException(
                 code="data_convert_error",
                 detail=f"Column '{coldef['oldcolname']}' cannot be converted to '{coldef['coltype']}'",
             )
             tblexc.status_code = 404
-            raise tblexc
+            raise tblexc from exc
         else:
             self.column_to_db(coldef, "alter")
 
+    @schema_aware(lambda self: self.schema_name)
     def rename_db_table(self, new_table_name: str, old_table_name: str) -> None:
         """renames the table name"""
         try:
@@ -209,7 +216,7 @@ class DynamicTableQueryHandler:
                 schema_editor.alter_db_table(
                     model=self.model_cls,
                     old_db_table=old_table_name,
-                    new_db_table="tables_" + new_table_name,
+                    new_db_table=f"tables_{new_table_name}",
                 )
         except ProgrammingError as e:
             BaseException(
