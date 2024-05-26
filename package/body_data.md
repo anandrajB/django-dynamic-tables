@@ -161,7 +161,7 @@ Example Requests:
 
 ## Adding Rows
 
-### Endpoint: POST /table/api/row//
+### Endpoint: POST /table/api/row/
 
 Example Request:
 

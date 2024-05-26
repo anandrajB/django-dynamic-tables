@@ -113,3 +113,12 @@ urlpatterns = [
 - now navigate to **api/table** 
 
 - now the table creation post api need to called with same body data , the new schema will be created in your postgres db in that the dynamic tables will be created 
+
+
+
+
+### for more information check the api documentation
+
+- [link1](https://documenter.getpostman.com/view/11858287/2sA3QqhYYp)
+
+- [link_2](https://github.com/anandrajB/django-dynamic-table/blob/main/package/body_data.md)

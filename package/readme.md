@@ -1,6 +1,9 @@
 # Django Dynamic Table
 
-### Dynamic table creation in django app
+
+- The ***djdynatable*** library provides a convenient and flexible way to work with dynamic tables in your Django application. It allows you to create tables programmatically, add columns, modify existing tables, and perform other operations without the need for complex migrations or model definitions. However you can create tables on-the-fly based on user input or other dynamic factors.
+
+- With added django-tenants you can add custom schema whereas your tables will be created in that schemas rather than public schemas in your postgres db .
 
 ##### **refer** : https://docs.djangoproject.com/en/5.0/ref/schema-editor/
 
@@ -31,11 +34,8 @@ pip install djdynatable
 ```bash
 
 INSTALLED_APPS = [
-
     'djdynatable',
-
     'rest_framework'
-
 ]
 
 ```
@@ -68,3 +68,57 @@ urlpatterns = [
 - python manage.py migrate 
 
 ```
+
+
+
+## 2. Setup (without django-tenants)
+
+- by default the public schema will be selected 
+
+- navigate to **api/table/** 
+
+- To set up a new dynamic table, send a POST request to api/table/ with the following body data:
+
+
+
+``` 
+{
+   "tblname":"customer_details",
+   "columns":[
+      {
+         "colname":"username",
+         "coltype":"string"
+      },
+      {
+         "colname":"phone_number",
+         "coltype":"number"
+      }
+   ]
+}
+```
+
+- now in your pgadmin under public schema , check that the new table will be created dynamically with 2 columns as id,  username  , phone_number , without any migrations
+
+
+- with rest of the api's your can dynamically add , drop , modify columns and rows as per your need .
+
+
+
+
+## 2.1 . Setup (with django-tenants)
+
+- make sure you completed the basic setup instructions mentioned in the django-tenants documenatation , for more info check [here](https://django-tenants.readthedocs.io/en/latest/install.html#basic-settings)
+
+
+- now navigate to **api/table** 
+
+- now the table creation post api need to called with same body data , the new schema will be created in your postgres db in that the dynamic tables will be created 
+
+
+
+
+### for more information check the api documentation
+
+- [link1](https://documenter.getpostman.com/view/11858287/2sA3QqhYYp)
+
+- [link_2](https://github.com/anandrajB/django-dynamic-table/blob/main/package/body_data.md)
