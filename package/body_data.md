@@ -1,312 +1,204 @@
-# create table
+# TABLE MANAGEMENT
 
-### example 1
+## Create Table
+
+### Endpoint: POST /api/table/
+
+##### Example Request:
+
+- Single Column
 
 ```
-
-
 {
-
-
-    "tblname":"mytable",
-
-
-    "columns":[
-
-
-       {
-
-
-          "colname":"username",
-
-
-          "coltype":"string"
-
-
-       }
-
-
-    ]
-
-
- }
-
-
-```
-
-### example 2
-
-```
-
-
-{
-
-
-   "tblname":"mytable",
-
-
-   "columns":[
-
-
+   "tblname": "mytable",
+   "columns": [
       {
-
-
-         "colname":"username",
-
-
-         "coltype":"string"
-
-
-      },
-
-
-      {
-
-
-         "colname":"phone_number",
-
-
-         "coltype":"string"
-
-
+         "colname": "username",
+         "coltype": "string"
       }
-
-
    ]
-
-
 }
-
-
 ```
 
-# add column
-
-### example 1
+- Multiple Columns
 
 ```
-
-
- {
-
-
-    "change":"add",
-
-
-    "colname":"useremail_id",
-
-
-    "coltype":"string"
-
-
- }
-
-
-```
-
-### example 2
-
-#### for to add foreign key fields
-
-```
-
-
 {
-
-
-   "change":"add",
-
-
-   "colname":"kyc_info",
-
-
-   "to_table":"7717",
-
-
-   "to_row_id":1,
-
-
-   "coltype":"foreignkey"
-
-
+   "tblname": "mytable",
+   "columns": [
+      {
+         "colname": "username",
+         "coltype": "string"
+      },
+      {
+         "colname": "phone_number",
+         "coltype": "string"
+      }
+   ]
 }
-
-
 ```
 
-# remove column
+## Get Table Information
+
+### Endpoint: GET /api/table/
+
+Query Parameters:
+
+table_name (required): The name of the table to retrieve.
+Example Request:
+
+GET /api/table/?table_name=mytable
+
+---
+
+# COLUMN MANAGEMENT
+
+### Add Column
+
+---
+
+#### Endpoint: POST /api/table/columns/
+
+Example Requests:
+
+- Add a Standard Column
 
 ```
-
-
- {
-
-
-    "change":"remove",
-
-
-    "colname":"phone_number"
-
-
- }
-
-
-```
-
-### remove with relation column in the current table
-
-```
-
-
 {
-
-
-   "change":"remove",
-
-
-   "colname":"kyc_info",
-
-
-   "to_table":7717
-
-
+   "change": "add",
+   "colname": "useremail_id",
+   "coltype": "string"
 }
-
-
 ```
 
-# rename column name
+- Add a Foreign Key Column
 
 ```
-
-
 {
-
-
-   "change":"alter",
-
-
-   "oldcolname":"first_name",
-
-
-   "colname":"full_name",
-
-
-   "coltype":"string"
-
-
+   "change": "add",
+   "colname": "kyc_info",
+   "to_table": "7717",
+   "to_row_id": 1,
+   "coltype": "foreignkey"
 }
-
-
 ```
 
-# modify column type
+### Remove Column
+
+---
+
+#### Endpoint: POST /api/table/columns/
+
+Example Requests:
+
+- Remove a Standard Column
 
 ```
-
-
 {
-
-
-   "change":"alter",
-
-
-   "oldcolname":"emp_id",
-
-
-   "colname":"emp_id",
-
-
-   "coltype":"number"
-
-
+   "change": "remove",
+   "colname": "phone_number"
 }
-
-
 ```
 
+- Remove a Column with Relation
+
 ```
-
-
 {
+   "change": "remove",
+   "colname": "kyc_info",
+   "to_table": 7717
+}
+```
 
+### Rename Column
 
-   "change":"alter",
+---
 
+### Endpoint: POST /api/table/columns/
 
-   "oldcolname":"emp_id",
+Example Request:
 
+```
+{
+   "change": "alter",
+   "oldcolname": "first_name",
+   "colname": "full_name",
+   "coltype": "string"
+}
+```
 
+---
+
+## Modify Column Type
+
+### Endpoint: POST /api/table/columns/
+
+Example Requests:
+
+- Change Column Type (Keeping Column Name)
+
+```
+{
+   "change": "alter",
+   "oldcolname": "emp_id",
+   "colname": "emp_id",
+   "coltype": "number"
+}
+```
+
+- Change Column Type and Name
+
+```
+{
+   "change": "alter",
+   "oldcolname": "emp_id",
    "colname": "is_checked",
-
-
-   "coltype":"boolean"
-
-
+   "coltype": "boolean"
 }
-
-
 ```
 
-# ADD ROWS
+# Row Management
 
-## http://127.0.0.1:8000/table/api/row/3313421/
+## Adding Rows
 
-#### when on adding rows , the data should be same as the column serializer's data
+### Endpoint: POST /table/api/row//
+
+Example Request:
 
 ```
-
-
 {
-
-
-   "employee_name":"Jerome jack",
-
-
-   "product_details":"sample",
-
-
-   "is_completed":true,
-
-
-   "email_id":"jack@proton.me",
-
-
-   "kyc_info_id":null
-
-
+   "employee_name": "Jerome jack",
+   "product_details": "sample",
+   "is_completed": true,
+   "email_id": "jack@proton.me",
+   "kyc_info_id": null
 }
-
-
 ```
 
-# MODIFYING ROWS
+## Modify Rows
+
+Endpoint: PUT /table/api/row/{table_id}/
+
+Example Request:
 
 ```
-
-
 {
-
-
-   "id":4,
-
-
-   "employee_name":"Jerome jackson",
-
-
-   "product_details":"sample",
-
-
-   "kyc_info_id":null
-
-
+   "id": 4,
+   "employee_name": "Jerome jackson",
+   "product_details": "sample",
+   "kyc_info_id": null
 }
-
-
 ```
 
-# DELETING ROWS
 
-#### i.e id = my_row_id
 
-#### http://127.0.0.1:8000/table/api/row/3313421/?id=4
+## Delete Rows
+
+Endpoint: DELETE /table/api/row/{table_id}/
+
+Query Parameters:
+
+id (required): The ID of the row to delete.
+
+Example Request:
+DELETE /table/api/row/3313421/?id=4
