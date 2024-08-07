@@ -3,7 +3,8 @@ from django.utils import timezone
 import datetime
 import uuid
 from rest_framework import serializers
-
+import contextlib
+from django.conf import settings
 
 Generated_model_objects = {}
 
@@ -67,15 +68,24 @@ RELATIONSHIP_FIELD_OPTIONS = {
 DEFAULT_BLANK_FIELD_OPTIONS = {
     "default": "",
     "blank": True,
-    "null": True,
 }
+
+DEFAULT_SERIALIZER_OPTIONS = {"allow_null": True}
 
 RELATIONSHIP_FIELD = ["foreignkey", "onetoonefield", "manytomanyfield"]
 
+
+EXTRA_MODEL_ATTRS = {
+    "string": {"editable": bool, "unique": bool},
+    "integer": {"editable": bool, "unique": bool, "db_index": bool},
+    "text": {"editable": bool, "unique": bool, "db_index": bool},
+}
+
+
 DEFAULT_MODEL_ATTRS = {
-    "string": {"max_length": 255, "blank": True, "null": True},
+    "string": {"max_length": 1024, "blank": True, "null": True},
     "number": {"blank": True, "null": True},
-    "boolean": {"default": False},
+    "boolean": {"default": False, "blank": True, "null": True},
     "date": {"default": datetime.date.today},
     "datetime": {"default": datetime.datetime.now},
     "positiveinteger": {"default": 0},
@@ -83,6 +93,30 @@ DEFAULT_MODEL_ATTRS = {
     "time": {"default": timezone.now},
     "email": DEFAULT_BLANK_FIELD_OPTIONS,
     "url": DEFAULT_BLANK_FIELD_OPTIONS,
+    "uuid": {"default": uuid.uuid4},
+    "foreignkey": RELATIONSHIP_FIELD_OPTIONS,
+    "onetoonefield": RELATIONSHIP_FIELD_OPTIONS,
+    "manytomanyfield": RELATIONSHIP_FIELD_OPTIONS,
+}
+
+
+DEFAULT_SERIALIZER_ATTRS = {
+    "string": DEFAULT_SERIALIZER_OPTIONS,
+    "number": DEFAULT_SERIALIZER_OPTIONS,
+    "boolean": DEFAULT_SERIALIZER_OPTIONS,
+    "date": {
+        "default": datetime.date.today,
+        **DEFAULT_SERIALIZER_OPTIONS,
+    },
+    "datetime": {
+        "default": datetime.datetime.now,
+        **DEFAULT_SERIALIZER_OPTIONS,
+    },
+    "positiveinteger": {"default": 0, "allow_null": True},
+    "text": DEFAULT_SERIALIZER_OPTIONS,
+    "time": {"default": timezone.now},
+    "email": DEFAULT_SERIALIZER_OPTIONS,
+    "url": DEFAULT_SERIALIZER_OPTIONS,
     "uuid": {"default": uuid.uuid4},
     "foreignkey": RELATIONSHIP_FIELD_OPTIONS,
     "onetoonefield": RELATIONSHIP_FIELD_OPTIONS,
@@ -98,9 +132,13 @@ from django.db import models
 
 
 class SchemaModel(models.Model):
-    table_name = models.CharField(max_length=255, unique=True)
+    table_name = models.CharField(max_length=1024, unique=True)
     columns = models.JSONField(help_text="column schema")
+
+    @property
+    def chunk_size(self):
+        return SchemaModel.objects.all().count()
 
 
 class Fields(models.Model):
-    field_type = models.CharField(max_length=255)
+    field_type = models.CharField(max_length=1024, unique=True)

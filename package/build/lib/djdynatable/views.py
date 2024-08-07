@@ -6,8 +6,8 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 import contextlib
-from .core import DynamicTable
-from .models import DEFAULT_MODEL_ATTRS, SchemaModel
+from ....djdynatable.core import DynamicTable
+from ....djdynatable.models import DEFAULT_MODEL_ATTRS, SchemaModel
 from .serializer import ColumnChangeSerializer, TableSerializer
 from .utils import schema_aware, BaseDispath
 

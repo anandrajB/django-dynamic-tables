@@ -1,10 +1,9 @@
 from typing import Dict, Optional, Type
 from django.db.backends.base.base import BaseDatabaseWrapper
-
 from django.db import ProgrammingError, models
 from django.db.utils import DataError
 from django.shortcuts import get_object_or_404
-from .exception import BaseException
+from .exceptions import BaseException
 from .models import (
     DEFAULT_FIELD_TYPES,
     DEFAULT_MODEL_ATTRS,
@@ -14,7 +13,6 @@ from .models import (
 )
 from dataclasses import dataclass
 from django.db import connections
-from .utils import schema_aware
 
 
 @dataclass(slots=True)
@@ -37,7 +35,6 @@ class DynamicTableQueryHandler:
             )
         )[0]
 
-    @schema_aware(lambda self: self.schema_name)
     def column_to_db(self, coldef: Dict, change: str = "add") -> None:
         schema_table_obj = SchemaModel.objects.filter(
             table_name=self.data["tblname"]
@@ -65,6 +62,7 @@ class DynamicTableQueryHandler:
             schema_table_obj.save()
 
     def get_relation_table_object(self, data: Dict) -> models.Model:
+
         return (
             get_object_or_404(
                 Generated_model_objects[data["to_table"]], pk=data["to_row_id"]
@@ -73,16 +71,6 @@ class DynamicTableQueryHandler:
             else Generated_model_objects[data["to_table"]]
         )
 
-    # return (
-    #     get_object_or_404(
-    #         self.load_table_schema(data["to_table"]).model_cls.objects.all(),
-    #         pk=data["to_row_id"],
-    #     )
-    #     if "to_row_id" in data
-    #     else self.load_table_schema(data["to_table"]).model_cls
-    # )
-
-    @schema_aware(lambda self: self.schema_name)
     def add_column(self, coldef: Dict) -> None:
         """adds column to dynamic table and saves metadata to schema table"""
 
@@ -99,9 +87,14 @@ class DynamicTableQueryHandler:
             )
 
         else:
-            field = DEFAULT_FIELD_TYPES[coldef["coltype"]](
-                **DEFAULT_MODEL_ATTRS[coldef["coltype"]]
+            field_extra_args = coldef.get("extra_args")
+            fields_attrs = (
+                {**DEFAULT_MODEL_ATTRS[coldef["coltype"]], **field_extra_args}
+                if field_extra_args
+                else {**DEFAULT_MODEL_ATTRS[coldef["coltype"]]}
             )
+            print("the filed is", fields_attrs)
+            field = DEFAULT_FIELD_TYPES[coldef["coltype"]](**fields_attrs)
         field.column = coldef["colname"]
 
         try:
@@ -117,7 +110,6 @@ class DynamicTableQueryHandler:
         else:
             self.column_to_db(coldef, "add")
 
-    @schema_aware(lambda self: self.schema_name)
     def remove_column(self, coldef: Dict) -> None:
         """removes column to dynamic table and saves metadata to schema  table"""
         try:
@@ -140,7 +132,8 @@ class DynamicTableQueryHandler:
                 blank=True,
                 null=True,
             )
-        field = DEFAULT_FIELD_TYPES[local_coldef["coltype"]]()
+        else:
+            field = DEFAULT_FIELD_TYPES[local_coldef["coltype"]]()
         field.column = coldef["colname"]
 
         try:
@@ -156,7 +149,6 @@ class DynamicTableQueryHandler:
         else:
             self.column_to_db(coldef, "remove")
 
-    @schema_aware(lambda self: self.schema_name)
     def alter_column(self, coldef: Dict) -> None:
         try:
             old_column = self.get_modifiers(coldef)
@@ -168,16 +160,20 @@ class DynamicTableQueryHandler:
             tblexc.status_code = 404
             raise tblexc from e
 
-        old_field = DEFAULT_FIELD_TYPES[old_column["coltype"]]()
-        old_field.column = old_column["colname"]
+        # recreate the old field
+        old_field = DEFAULT_FIELD_TYPES[old_column["coltype"]](
+            **DEFAULT_MODEL_ATTRS[old_column["coltype"]]
+        )
+        old_field.set_attributes_from_name(old_column["colname"])
 
+        # Create new field
         new_field = DEFAULT_FIELD_TYPES[coldef["coltype"]](
             **DEFAULT_MODEL_ATTRS[coldef["coltype"]]
         )
-        new_field.column = coldef["colname"]
+        new_field.set_attributes_from_name(coldef["colname"])
         try:
             if old_column["coltype"] != coldef["coltype"]:
-                """check current column type and new column type"""
+                # Check current column type and new column type
                 try:
                     self.model_cls.objects.all().update(**{old_column["colname"]: None})
                 except Exception:
@@ -189,6 +185,7 @@ class DynamicTableQueryHandler:
                         self.model_cls.objects.all().update(
                             **{old_column["colname"]: None}
                         )
+                    print(old_field, new_field)
             with self.db_conn.schema_editor() as schema_editor:
                 schema_editor.alter_field(self.model_cls, old_field, new_field)
         except ProgrammingError as exc:
@@ -208,7 +205,6 @@ class DynamicTableQueryHandler:
         else:
             self.column_to_db(coldef, "alter")
 
-    @schema_aware(lambda self: self.schema_name)
     def rename_db_table(self, new_table_name: str, old_table_name: str) -> None:
         """renames the table name"""
         try:

@@ -2,9 +2,11 @@ import contextlib
 import importlib
 from dataclasses import dataclass
 from functools import wraps
+from django.apps import apps
+from django.core.management import color, sql
+from django.db import connection
 from importlib import import_module, reload
 from typing import Dict, List, Optional, Type
-
 from django.apps import apps
 from django.conf import settings
 from django.contrib import admin
@@ -14,16 +16,18 @@ from django.db.models import QuerySet
 from django.utils.asyncio import async_unsafe
 from rest_framework import serializers
 from .handler import DynamicTableQueryHandler
-from .exception import BaseException, TableDoesntExistException
-from .utils import schema_aware, check_dependencies
+from .exceptions import BaseException, TableDoesntExistException
+from ..build.lib.djdynatable.utils import check_dependencies
 from .models import (
     DEFAULT_FIELD_TYPES,
     DEFAULT_MODEL_ATTRS,
+    DEFAULT_SERIALIZER_FIELD_TYPES,
+    DEFAULT_SERIALIZER_ATTRS,
     RELATIONSHIP_FIELD,
     SchemaModel,
     Generated_model_objects,
 )
-from .compat import BASE_SCHEMA_NAME, DJANGO_PROJECT_NAME
+from ..build.lib.djdynatable.compat import BASE_SCHEMA_NAME, DJANGO_PROJECT_NAME
 
 
 try:
@@ -40,9 +44,41 @@ except Exception:
 """"default schema set as tables_ """
 
 
+class FlexibleRelatedField(serializers.Field):
+    def __init__(self, queryset, to_table, extra_params, **kwargs):
+        self.queryset = queryset
+        self.to_table = to_table
+        self.extra_params = extra_params
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data):
+        model = apps.get_model("tables", self.to_table)
+        """ignore to internal value"""
+        try:
+            return model.objects.get(name=data).id
+        except model.DoesNotExist:
+            try:
+                return model.objects.get(id=data).id
+            except model.DoesNotExist as e:
+                raise serializers.ValidationError(
+                    f"Object with value '{data}' does not exist."
+                ) from e
+
+    def get_slug_name(self, value):
+        queryset = apps.get_model("tables", self.to_table).objects.get(id=value)
+        if hasattr(queryset, self.extra_params["slug_name"]):
+            return getattr(queryset, self.extra_params["slug_name"])
+
+    def to_representation(self, value):
+        with contextlib.suppress(Exception):
+            if self.extra_params:
+                return self.get_slug_name(value)
+            queryset = apps.get_model("tables", self.to_table).objects.get(id=value)
+            """override the str by default"""
+            return str(queryset)
+
+
 def install(model):
-    from django.core.management import color, sql
-    from django.db import connection
 
     style = color.no_style()
 
@@ -65,12 +101,11 @@ class DynamicTable:
     #     return super().__new__(cls)
 
     def __post_init__(self) -> None:
-        self.model_cls: object = self.get_model_cls(self.data)
+        self.model_cls: models.Model = self.get_model_cls(self.data)
         self.db_conn: BaseDatabaseWrapper = connections["default"]
         if self.new_table:
             self.create_table()
         if self.schema_name is None:
-            print("the schema name is ", self.schema_name)
             self.schema_name = BASE_SCHEMA_NAME
 
     @property
@@ -88,7 +123,6 @@ class DynamicTable:
     def clear_object(self) -> None:
         return Generated_model_objects.pop(self.table_verbose_name)
 
-    @schema_aware(lambda self: self.schema_name)
     @property
     def table_exists(
         self,
@@ -140,18 +174,28 @@ class DynamicTable:
         class_name = model_class.__name__
         return f"{module_name}.{class_name}"
 
-    @schema_aware(lambda self: self.schema_name)
     def deserialize_model_class(self, model_class_string):
         module_name, class_name = model_class_string.rsplit(".", 1)
         module = importlib.import_module(module_name)
         return getattr(module, class_name)
 
     @staticmethod
-    @schema_aware(lambda self: self.schema_name)
     def register_app() -> None:
         with contextlib.suppress(Exception):
             admin.site.register(DynamicTable.model_cls)
         reload(import_module(settings.ROOT_URLCONF))
+
+    def check_existing_column(self, column_name: str) -> bool:
+        try:
+            return bool(self.model_cls._meta.get_field(column_name))
+        except Exception:
+            return False
+            # raise ColumnException()
+
+    @property
+    def get_table_schema_columns(self) -> List[Dict] | bool:
+        queryset = SchemaModel.objects.filter(table_name=self.data["tblname"])
+        return list(queryset.values("columns")) if queryset.exists() else False
 
     def handle_column_changes(
         self,
@@ -161,6 +205,7 @@ class DynamicTable:
         table_query = DynamicTableQueryHandler(
             data=self.data, model_cls=self.model_cls, schema_name=self.schema_name
         )
+
         change_actions = {
             "add": table_query.add_column,
             "remove": table_query.remove_column,
@@ -173,37 +218,98 @@ class DynamicTable:
         change_type = coldef["change"]
         if change_type in change_actions:
             change_actions[change_type](serializer.data)
+            self.clear_object()
         else:
             raise ValueError(f"Unsupported change type: {change_type}")
 
-    @schema_aware(lambda self: self.schema_name)
-    def get_model_cls(self, data: Dict) -> models.Model:
+    def meta_model_validation(
+        self, data: Dict
+    ) -> ValueError | NotImplementedError | None:
+        if data["ordering"] and data["indexes"] is None:
+            raise ValueError(
+                "ordering and indexes cannot be null or empty , must be the columns"
+            )
+        if [item["colname"] for item in data["columns"]] not in data[
+            "ordering"
+        ] or data["indexes"]:
+            raise NotImplementedError(
+                "ordering and indexes fields must match with the columns mentioned"
+            )
 
-        # if Generated_model_objects.get(str(data["tblname"])):
-        #     return Generated_model_objects[str(data["tblname"])]
+    def get_model_meta_options(self, data: Dict):
+        if data["meta_options"]:
+            self.meta_model_validation(data)
+            ordering = data["meta_options"]["ordering"]
+            indexes = [models.Index(fields=[fields]) for fields in data["indexes"]]
+        else:
+            ordering = ["id"]
+            indexes = [
+                models.Index(fields=[data["columns"][0]["colname"]]),
+            ]
+        return ordering, indexes
+
+    def get_model_cls(self, data: Dict) -> models.Model | QuerySet:
+
+        if Generated_model_objects.get(str(data["tblname"])):
+            return Generated_model_objects[str(data["tblname"])]
+
+        meta_ordering, meta_indexes = self.get_model_meta_options(data)
 
         class Meta:
             app_label = "tables"
             verbose_name = data["tblname"]
             verbose_name_plural = data["tblname"]
             db_table = "tables_" + data["tblname"]
+            ordering = meta_ordering
+            indexes = meta_indexes
 
         model_attrs = {
             "__module__": models.Model.__module__,
             "app_label": f"{DJANGO_PROJECT_NAME}.tables",
             "Meta": Meta,
+            "__str__": lambda self: "{}".format(
+                getattr(
+                    self,
+                    (
+                        data["columns"][0]["colname"]
+                        if data["meta_options"] is None
+                        else data["meta_options"]["strname"]
+                    ),
+                )
+            ),
+            "__repr__": lambda self: "{}".format(
+                getattr(
+                    self,
+                    (
+                        data["columns"][0]["colname"]
+                        if data["meta_options"] is None
+                        else data["meta_options"]["reprname"]
+                    ),
+                )
+            ),
         }
 
         for col_dict in data["columns"]:
+
+            field_extra_args = col_dict.get("extra_args")
+            fields_attrs = (
+                {**DEFAULT_MODEL_ATTRS[col_dict["coltype"]], **field_extra_args}
+                if field_extra_args
+                else {**DEFAULT_MODEL_ATTRS[col_dict["coltype"]]}
+            )
             model_attrs[col_dict["colname"]] = DEFAULT_FIELD_TYPES[col_dict["coltype"]](
-                **DEFAULT_MODEL_ATTRS[col_dict["coltype"]]
+                **fields_attrs
             )
             if col_dict["coltype"] in RELATIONSHIP_FIELD:
-                model_attrs[col_dict["colname"]].db_column = col_dict["colname"]
-                model_attrs[col_dict["colname"]].related_query_name = col_dict[
-                    "colname"
-                ]
-                model_attrs[col_dict["colname"]].related_name = col_dict["colname"]
+                model_attrs[col_dict["colname"]] = DEFAULT_FIELD_TYPES[
+                    col_dict["coltype"]
+                ](
+                    self.get_related_model(col_dict["to_table"]),
+                    on_delete=models.DO_NOTHING,
+                    db_column=col_dict["colname"],
+                    related_query_name=col_dict["colname"],
+                    related_name=col_dict["colname"],
+                )
 
         model_klass = type(data["tblname"], (models.Model,), model_attrs)
 
@@ -211,7 +317,6 @@ class DynamicTable:
 
         return model_klass
 
-    @schema_aware(lambda self: self.schema_name)
     def create_table(self) -> None:
         try:
             with self.db_conn.schema_editor() as schema_editor:
@@ -230,29 +335,91 @@ class DynamicTable:
             schema_model_obj.save()
 
     def get_fields(self) -> List:
-        return [x["colname"] for x in self.data["columns"]]
+        return ["id"] + [x["colname"] for x in self.data["columns"]]
+
+    def get_fields_with_non_type(self) -> List[Dict]:
+        return [{item["colname"]: item["coltype"]} for item in self.data["columns"]]
 
     def get_fields_with_types(self) -> List:
         return [
-            DEFAULT_FIELD_TYPES[x["coltype"]](DEFAULT_MODEL_ATTRS[x["coltype"]])
+            DEFAULT_FIELD_TYPES[x["coltype"]](
+                **(
+                    DEFAULT_MODEL_ATTRS[x["coltype"]]
+                    if x["coltype"] not in RELATIONSHIP_FIELD
+                    else {
+                        "to": "tables_" + x["to_table"],
+                        "on_delete": models.DO_NOTHING,
+                        "blank": True,
+                        "null": True,
+                    }
+                )
+            )
             for x in self.data["columns"]
         ]
 
-    def get_serializer(self) -> serializers.ModelSerializer:
-        """creates Dynamic Table Serializer class from model class"""
+    def get_related_model(self, table_name) -> models.Model:
+        table = self.load_table_schema(tblname=table_name, schema_name=self.schema_name)
+        return apps.get_model("tables", table.table_verbose_name)
+
+    def get_serializer_with_related_models(self) -> serializers.ModelSerializer:
+
+        field_dict = {
+            "id": serializers.IntegerField(read_only=True),
+            **{
+                column["colname"]: (
+                    FlexibleRelatedField(
+                        queryset=self.get_related_model(
+                            column["to_table"]
+                        ).objects.all(),
+                        to_table=column["to_table"],
+                        extra_params=column.get("extra_params"),
+                        allow_null=True,
+                        required=False,
+                    )
+                    if column["coltype"] in RELATIONSHIP_FIELD
+                    else DEFAULT_SERIALIZER_FIELD_TYPES[column["coltype"]](
+                        **DEFAULT_SERIALIZER_ATTRS[column["coltype"]]
+                    )
+                )
+                for column in self.data["columns"]
+            },
+        }
         meta_cls = type(
             "Meta",
             (object,),
             {
                 "model": self.model_cls,
-                "fields": self.get_fields(),
+                "fields": list(field_dict.keys()),
+            },
+        )
+
+        field_dict["Meta"] = meta_cls
+
+        return type(
+            "DynamicTableSerializer", (serializers.ModelSerializer,), field_dict
+        )
+
+    def get_serializer(self) -> serializers.ModelSerializer:
+        """never add relationship fields when on deserializing"""
+        meta_cls = type(
+            "Meta",
+            (object,),
+            {
+                "model": self.model_cls,
+                "fields": (
+                    ["id"]
+                    + [
+                        list(item.keys())[0]
+                        for item in self.get_fields_with_non_type()
+                        if list(item.values())[0] not in RELATIONSHIP_FIELD
+                    ]
+                ),
             },
         )
         return type(
             "DynamicTableSerializer", (serializers.ModelSerializer,), {"Meta": meta_cls}
         )
 
-    @schema_aware(lambda self: self.schema_name)
     def drop_table(self) -> None:
         """drops the table from database"""
         try:
@@ -269,8 +436,17 @@ class DynamicTable:
             # self.unregister_app(self.data["tblname"], self.data["tblname"])
             SchemaModel.objects.filter(table_name=self.data["tblname"]).delete()
 
-    @schema_aware(lambda self: self.schema_name)
-    def get_queryset(self) -> QuerySet:
+    def get_queryset(self, related: Optional[bool] = False) -> QuerySet:
+        if related and any(
+            col["coltype"] in RELATIONSHIP_FIELD for col in self.data["columns"]
+        ):
+            return self.model_cls.objects.all().select_related(
+                *[
+                    col["colname"]
+                    for col in self.data["columns"]
+                    if col["coltype"] in RELATIONSHIP_FIELD
+                ]
+            )
         return self.model_cls.objects.all()
 
     def __delattr__(self, name: str) -> None:

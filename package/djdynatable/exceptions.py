@@ -7,6 +7,12 @@ class BaseException(APIException):
     default_code = "internal_server_error"
 
 
+class ColumnException(APIException):
+    status_code = 500
+    default_detail = "Column already exists ."
+    default_code = "column_already_exists"
+
+
 class TableDoesntExistException(APIException):
     status_code = 404
     default_detail = "Table does not exist."
