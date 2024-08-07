@@ -67,7 +67,7 @@ RELATIONSHIP_FIELD_OPTIONS = {
 DEFAULT_BLANK_FIELD_OPTIONS = {
     "default": "",
     "blank": True,
-    # "null": True,
+    "null": True,
 }
 
 RELATIONSHIP_FIELD = ["foreignkey", "onetoonefield", "manytomanyfield"]
