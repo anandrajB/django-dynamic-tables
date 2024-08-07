@@ -237,16 +237,17 @@ class DynamicTable:
             )
 
     def get_model_meta_options(self, data: Dict):
-        if data["meta_options"]:
-            self.meta_model_validation(data)
-            ordering = data["meta_options"]["ordering"]
-            indexes = [models.Index(fields=[fields]) for fields in data["indexes"]]
-        else:
-            ordering = ["id"]
-            indexes = [
-                models.Index(fields=[data["columns"][0]["colname"]]),
-            ]
-        return ordering, indexes
+        with contextlib.suppress(Exception):
+            if data["meta_options"]:
+                self.meta_model_validation(data)
+                ordering = data["meta_options"]["ordering"]
+                indexes = [models.Index(fields=[fields]) for fields in data["indexes"]]
+            else:
+                ordering = ["id"]
+                indexes = [
+                    models.Index(fields=[data["columns"][0]["colname"]]),
+                ]
+            return ordering, indexes
 
     def get_model_cls(self, data: Dict) -> models.Model | QuerySet:
 
