@@ -8,7 +8,7 @@
 
 - Single Column
 
-```
+```json
 {
    "tblname": "mytable",
    "columns": [
@@ -22,7 +22,7 @@
 
 - Multiple Columns
 
-```
+```json
 {
    "tblname": "mytable",
    "columns": [
@@ -37,6 +37,31 @@
    ]
 }
 ```
+
+
+-  With Custom Meta options
+
+```json
+{
+   "tblname":"mytable",
+   "columns":[
+      {
+         "colname":"username",
+         "coltype":"string"
+      }
+   ],
+   "meta_options":{
+      "strname":"username",
+      "reprname":"id",
+      "ordering":"username",
+      "indexes":[
+         "username",
+         "email"
+      ]
+   }
+}
+```
+
 
 ## Get Table Information
 
@@ -63,7 +88,7 @@ Example Requests:
 
 - Add a Standard Column
 
-```
+```json
 {
    "change": "add",
    "colname": "useremail_id",
@@ -73,7 +98,7 @@ Example Requests:
 
 - Add a Foreign Key Column
 
-```
+```json
 {
    "change": "add",
    "colname": "kyc_info",
@@ -93,7 +118,7 @@ Example Requests:
 
 - Remove a Standard Column
 
-```
+```json
 {
    "change": "remove",
    "colname": "phone_number"
@@ -102,7 +127,7 @@ Example Requests:
 
 - Remove a Column with Relation
 
-```
+```json
 {
    "change": "remove",
    "colname": "kyc_info",
@@ -118,7 +143,7 @@ Example Requests:
 
 Example Request:
 
-```
+```json
 {
    "change": "alter",
    "oldcolname": "first_name",
@@ -137,7 +162,7 @@ Example Requests:
 
 - Change Column Type (Keeping Column Name)
 
-```
+```json
 {
    "change": "alter",
    "oldcolname": "emp_id",
@@ -148,7 +173,7 @@ Example Requests:
 
 - Change Column Type and Name
 
-```
+```json
 {
    "change": "alter",
    "oldcolname": "emp_id",
@@ -165,7 +190,7 @@ Example Requests:
 
 Example Request:
 
-```
+```json
 {
    "employee_name": "Jerome jack",
    "product_details": "sample",
@@ -181,7 +206,7 @@ Endpoint: PUT /table/api/row/{table_id}/
 
 Example Request:
 
-```
+```json
 {
    "id": 4,
    "employee_name": "Jerome jackson",
