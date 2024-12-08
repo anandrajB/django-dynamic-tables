@@ -17,7 +17,7 @@ from django.utils.asyncio import async_unsafe
 from rest_framework import serializers
 from .handler import DynamicTableQueryHandler
 from .exceptions import BaseException, TableDoesntExistException
-from ..build.lib.djdynatable.utils import check_dependencies
+from dynamictables.utils import check_dependencies
 from .models import (
     DEFAULT_FIELD_TYPES,
     DEFAULT_MODEL_ATTRS,
@@ -27,7 +27,7 @@ from .models import (
     SchemaModel,
     Generated_model_objects,
 )
-from ..build.lib.djdynatable.compat import BASE_SCHEMA_NAME, DJANGO_PROJECT_NAME
+from dynamictables.compat import BASE_SCHEMA_NAME, DJANGO_PROJECT_NAME
 
 
 try:

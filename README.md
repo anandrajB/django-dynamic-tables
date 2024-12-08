@@ -1,7 +1,7 @@
 # Django Dynamic Table
 
 
-- The ***djdynatable*** library provides a convenient and flexible way to work with dynamic tables in your Django application. It allows you to create tables programmatically, add columns, modify existing tables, and perform other operations without the need for complex migrations or model definitions. However you can create tables on-the-fly based on user input or other dynamic factors.
+- The ***dynamictables*** library provides a convenient and flexible way to work with dynamic tables in your Django application. It allows you to create tables programmatically, add columns, modify existing tables, and perform other operations without the need for complex migrations or model definitions. However you can create tables on-the-fly based on user input or other dynamic factors.
 
 - With added django-tenants you can add custom schema whereas your tables will be created in that schemas rather than public schemas in your postgres db .
 
@@ -21,11 +21,11 @@
 
 ### 1.1 Initial setup
 
-- Install djdynatable using [pip](https://pypi.org/project/djdynatable/)
+- Install dynamictables using [pip](https://pypi.org/project/dynamictables/)
 
 ```bash
 
-pip install djdynatable
+pip install dynamictables
 
 ```
 
@@ -34,7 +34,7 @@ pip install djdynatable
 ```bash
 
 INSTALLED_APPS = [
-    'djdynatable',
+    'dynamictables',
     'rest_framework'
 ]
 
@@ -46,7 +46,7 @@ INSTALLED_APPS = [
 
 urlpatterns = [
 
-    path('', include('djdynatable.urls'))
+    path('', include('dynamictables.urls'))
 
 ]
 

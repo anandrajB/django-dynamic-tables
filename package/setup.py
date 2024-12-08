@@ -9,7 +9,7 @@ def readme():
 
 # updated
 setup(
-    name="djdynatable",
+    name="dynamictables",
     version="1.0.4",
     long_description=readme(),
     long_description_content_type="text/markdown",
